@@ -21,8 +21,7 @@
   "homepage": "https://github.com/alphacharlie/node-ads1x15",
   "dependencies": {
     "async": "^0.9.0",
-    "i2c": "^0.2.1",
-    "rasp2c": "0.0.3"
+    "i2c": "^0.2.1"
   },
   "devDependencies": {
     "chai": "^2.2.0",
