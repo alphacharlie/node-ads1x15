@@ -1,0 +1,31 @@
+{
+  "name": "node-ads1x15",
+  "version": "1.0.0",
+  "description": "Node module for the I2C ADS1x15 anaolg to digital converters to run on Raspberry Pi",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://alphacharlie@github.com/alphacharlie/node-ads1x15.git"
+  },
+  "keywords": [
+    "ads1015"
+  ],
+  "author": "Chuck Werbick <info@boffinry.org> (http://boffinry.org)",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/alphacharlie/node-ads1x15/issues"
+  },
+  "homepage": "https://github.com/alphacharlie/node-ads1x15",
+  "dependencies": {
+    "async": "^0.9.0",
+    "i2c": "^0.2.1",
+    "rasp2c": "0.0.3"
+  },
+  "devDependencies": {
+    "chai": "^2.2.0",
+    "mocha": "^2.2.1"
+  }
+}
