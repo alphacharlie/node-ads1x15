@@ -238,7 +238,7 @@ ads1x15.prototype.readADCSingleEnded = function(channel, pga, sps, callback) {
           // Shift right 4 bits for the 12-bit ADS1015 and convert to mV
           console.log('is ads1015');
 
-          console.log('res0 = ' + res[0] + ', res1: ' + res[1]);
+        //  console.log('res0 = ' + res[0] + ', res1: ' + res[1]);
         
           var data = ( ((res[0] << 8) | (res[1] & 0xFF)) >> 4 ) * self.pga / 2048.0;
           callback(null, data);
