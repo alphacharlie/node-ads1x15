@@ -104,6 +104,7 @@ var pgaADS1x15 = {
   256  : ADS1015_REG_CONFIG_PGA_0_256V
 };
 
+
 // set up I2C for ADS1015/ADS1115
 
 function ads1x15(ic, address) {
@@ -124,6 +125,7 @@ function ads1x15(ic, address) {
   this.address = address; //defaults to 0x48 for addr pin tied to ground
   this.pga = 6144; //set this to a sane default...
   this.wire = new i2c(address, { device : '/dev/i2c-1' } );   // Raspberry Pi2 uses I2c address 1... (change to '/dev/i2c-1' for old Pi 1)
+  this.busy = false;
 
 }
 
@@ -138,132 +140,143 @@ function ads1x15(ic, address) {
 ads1x15.prototype.readADCSingleEnded = function(channel, pga, sps, callback) {
 
   var self  = this;
-
-  if(!channel)
-    channel = 0;
-  if(!pga)
-    pga = 6144;
-  if(!sps)
-    sps = 250;
-
-  if(channel > 3 || channel < 0)
+  if(!self.busy)
   {
-    callback("Error: Channel must be between 0 and 3");
-  }
+    self.busy = true;
+    if(!channel)
+      channel = 0;
+    if(!pga)
+      pga = 6144;
+    if(!sps)
+      sps = 250;
 
-// Disable comparator, Non-latching, Alert/Rdy active low
-// traditional comparator, single-shot mode
-  var config =  ADS1015_REG_CONFIG_CQUE_NONE | ADS1015_REG_CONFIG_CLAT_NONLAT | ADS1015_REG_CONFIG_CPOL_ACTVLOW | ADS1015_REG_CONFIG_CMODE_TRAD | ADS1015_REG_CONFIG_MODE_SINGLE;
+    if(channel > 3 || channel < 0)
+    {
+      self.busy = false;
+      callback("Error: Channel must be between 0 and 3");
+    }
+
+  // Disable comparator, Non-latching, Alert/Rdy active low
+  // traditional comparator, single-shot mode
+    var config =  ADS1015_REG_CONFIG_CQUE_NONE | ADS1015_REG_CONFIG_CLAT_NONLAT | ADS1015_REG_CONFIG_CPOL_ACTVLOW | ADS1015_REG_CONFIG_CMODE_TRAD | ADS1015_REG_CONFIG_MODE_SINGLE;
    
 
-// Set sample per seconds, defaults to 250sps
-// If sps is in the dictionary (defined in init) it returns the value of the constant
-// othewise it returns the value for 250sps. This saves a lot of if/elif/else code!
+  // Set sample per seconds, defaults to 250sps
+  // If sps is in the dictionary (defined in init) it returns the value of the constant
+  // othewise it returns the value for 250sps. This saves a lot of if/elif/else code!
 
-  if (self.ic == IC_ADS1015)
-  {
-    if(spsADS1015[sps])
+    if (self.ic == IC_ADS1015)
     {
-      config |= spsADS1015[sps];
-    }
-    else callback("ADS1x15: Invalid sps specified");
-  }
-  else
-  {
-    if (!(spsADS1115[sps]))
-    {
-      callback("ADS1x15: Invalid sps specified");
+      if(spsADS1015[sps])
+      {
+        config |= spsADS1015[sps];
+      }
+      else callback("ADS1x15: Invalid sps specified");
     }
     else
     {
-      config |= spsADS1115[sps];
-    }
-  }
-  // Set PGA/voltage range, defaults to +-6.144V
-  if (!(pgaADS1x15[pga]))
-  {
-    callback("ADS1x15: Invalid pga specified");
-  }
-  else
-  {
-    config |= pgaADS1x15[pga];
-  }
-  this.pga = pga
-
-  // Set the channel to be converted
-  if ( channel == 3)
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_3;
-  }
-  else if(channel == 2)
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_2;
-  }
-  else if(channel == 1)
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_1;
-  }
-  else
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_0;
-  }
-
-  // Set 'start single-conversion' bit
-  config |= ADS1015_REG_CONFIG_OS_SINGLE;
-
-  // Write config register to the ADC
-  var bytes = [(config >> 8) & 0xFF, config & 0xFF]
-  self.wire.writeBytes(ADS1015_REG_POINTER_CONFIG, bytes, function(err) {
-    if(err)
-    {
-      console.log("We've got an Error, Lance Constable Carrot!: " + err.toString());
-      callback(err);
-    }
-
-    // Wait for the ADC conversion to complete
-    // The minimum delay depends on the sps: delay >= 1/sps
-    // We add 0.1ms to be sure
-    var delay = 1.0 /sps +0.0002;
-    setTimeout(function() {
-     // Read the conversion results
-      self.wire.readBytes(ADS1015_REG_POINTER_CONVERT, 2, function(err, res) {
-        if(err)
-        {
-          console.log("We've got an Error, Lance Constable Carrot!: " + err.toString());
-          callback(err);
-        }
-        var data = -0.1;
-        if (self.ic == IC_ADS1015)
-        {
-          // Shift right 4 bits for the 12-bit ADS1015 and convert to mV
-          console.log('is ads1015');
-
-        //  console.log('res0 = ' + res[0] + ', res1: ' + res[1]);
-        
-          var data = ( ((res[0] << 8) | (res[1] & 0xFF)) >> 4 ) * self.pga / 2048.0;
-          callback(null, data);
+      if (!(spsADS1115[sps]))
+      {
+        self.busy = false;
+        callback("ADS1x15: Invalid sps specified");
       }
       else
       {
-        console.log('is ads1115');
-        // Return a mV value for the ADS1115
-        // (Take signed values into account as well)
-        data = -0.1;
-        var val = (res[0] << 8) | (res[1])
-        if (val > 0x7FFF)
-        {
-          data = (val - 0xFFFF) * pga / 32768.0;
+        config |= spsADS1115[sps];
+      }
+    }
+    // Set PGA/voltage range, defaults to +-6.144V
+    if (!(pgaADS1x15[pga]))
+    {
+      self.busy = false;
+      callback("ADS1x15: Invalid pga specified");
+    }
+    else
+    {
+      config |= pgaADS1x15[pga];
+    }
+    self.pga = pga
+
+    // Set the channel to be converted
+    if ( channel == 3)
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_3;
+    }
+    else if(channel == 2)
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_2;
+    }
+    else if(channel == 1)
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_1;
+    }
+    else
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_0;
+    }
+
+    // Set 'start single-conversion' bit
+    config |= ADS1015_REG_CONFIG_OS_SINGLE;
+
+    // Write config register to the ADC
+    var bytes = [(config >> 8) & 0xFF, config & 0xFF]
+    self.wire.writeBytes(ADS1015_REG_POINTER_CONFIG, bytes, function(err) {
+      if(err)
+      {
+        self.busy = false;
+        console.log("We've got an Error, Lance Constable Carrot!: " + err.toString());
+        callback(err);
+      }
+
+      // Wait for the ADC conversion to complete
+      // The minimum delay depends on the sps: delay >= 1/sps
+      // We add 0.1ms to be sure
+      var delay = 1.0 /sps +0.0002;
+      setTimeout(function() {
+       // Read the conversion results
+        self.wire.readBytes(ADS1015_REG_POINTER_CONVERT, 2, function(err, res) {
+          if(err)
+          {
+            self.busy = false;
+            console.log("We've got an Error, Lance Constable Carrot!: " + err.toString());
+            callback(err);
+          }
+          var data = -0.1;
+          if (self.ic == IC_ADS1015)
+          {
+            // Shift right 4 bits for the 12-bit ADS1015 and convert to mV
+            // console.log('res0 = ' + res[0] + ', res1: ' + res[1]);
+        
+            var data = ( ((res[0] << 8) | (res[1] & 0xFF)) >> 4 ) * self.pga / 2048.0;
+            self.busy = false;
+            callback(null, data);
         }
         else
         {
-          data = ( (res[0] << 8) | (res[1]) ) * pga / 32768.0;
+          // Return a mV value for the ADS1115
+          // (Take signed values into account as well)
+          data = -0.1;
+          var val = (res[0] << 8) | (res[1])
+          if (val > 0x7FFF)
+          {
+            data = (val - 0xFFFF) * pga / 32768.0;
+          }
+          else
+          {
+            data = ( (res[0] << 8) | (res[1]) ) * pga / 32768.0;
+          }
+          self.busy = false;
+          callback(null, data);
         }
-        callback(null, data);
-      }
-    });
-    }, delay);
+      });
+      }, delay);
   
-  });
+    });
+  }
+  else
+  {
+    callback("ADC is busy...");
+  }
 
 }
 
@@ -276,117 +289,130 @@ ads1x15.prototype.readADCSingleEnded = function(channel, pga, sps, callback) {
 
 ads1x15.prototype.readADCDifferential = function(chP, chN, pga, sps, callback) {
 
-  var self = this;
-  //set defaults if not provided
-  if(!chP)
-    chP = 0;
-  if(!chN)
-    chN = 1;
-  if(!pga)
-    pga=6144;
-  if(!sps)
-    sps=250;
+  var self  = this;
+  if(!self.busy)
+  {
+    self.busy = true;
+    //set defaults if not provided
+    if(!chP)
+      chP = 0;
+    if(!chN)
+      chN = 1;
+    if(!pga)
+      pga=6144;
+    if(!sps)
+      sps=250;
 
-  // Disable comparator, Non-latching, Alert/Rdy active low
-  // traditional comparator, single-shot mode
-  config = ADS1015_REG_CONFIG_CQUE_NONE | ADS1015_REG_CONFIG_CLAT_NONLAT | 
-  ADS1015_REG_CONFIG_CPOL_ACTVLOW | ADS1015_REG_CONFIG_CMODE_TRAD | 
-  ADS1015_REG_CONFIG_MODE_SINGLE;
+    // Disable comparator, Non-latching, Alert/Rdy active low
+    // traditional comparator, single-shot mode
+    config = ADS1015_REG_CONFIG_CQUE_NONE | ADS1015_REG_CONFIG_CLAT_NONLAT | 
+    ADS1015_REG_CONFIG_CPOL_ACTVLOW | ADS1015_REG_CONFIG_CMODE_TRAD | 
+    ADS1015_REG_CONFIG_MODE_SINGLE;
 
-  // Set channels
-  if ( (chP == 0) & (chN == 1) )
-  {
-    config |= ADS1015_REG_CONFIG_MUX_DIFF_0_1;
-  }
-  else if ( (chP == 0) & (chN == 3) )
-  {
-    config |= ADS1015_REG_CONFIG_MUX_DIFF_0_3;
-  }
-  else if ( (chP == 2) & (chN == 3) )
-  {
-    config |= ADS1015_REG_CONFIG_MUX_DIFF_2_3;
-  }
-  else if ( (chP == 1) & (chN == 3) )
-  {
-    config |= ADS1015_REG_CONFIG_MUX_DIFF_1_3;
-  }
-  else
-  {
-    console.log( "ADS1x15: Invalid channels specified");
-    callback("ADS1x15: Invalid channels specified");
-  }
-
-  // Set sample per seconds, defaults to 250sps
-  // If sps is in the dictionary (defined in init()) it returns the value of the constant
-  // othewise it returns the value for 250sps. This saves a lot of if/elif/else code!
-  if (this.ic == IC_ADS1015)
-  {
-    config |= spsADS1015[sps];
-  }
-    else
-  {
-    if (!(spsADS1115[sps]))
+    // Set channels
+    if ( (chP == 0) & (chN == 1) )
     {
+      config |= ADS1015_REG_CONFIG_MUX_DIFF_0_1;
+    }
+    else if ( (chP == 0) & (chN == 3) )
+    {
+      config |= ADS1015_REG_CONFIG_MUX_DIFF_0_3;
+    }
+    else if ( (chP == 2) & (chN == 3) )
+    {
+      config |= ADS1015_REG_CONFIG_MUX_DIFF_2_3;
+    }
+    else if ( (chP == 1) & (chN == 3) )
+    {
+      config |= ADS1015_REG_CONFIG_MUX_DIFF_1_3;
+    }
+    else
+    {
+      self.busy = false;
+      console.log( "ADS1x15: Invalid channels specified");
+      callback("ADS1x15: Invalid channels specified");
+    }
+
+    // Set sample per seconds, defaults to 250sps
+    // If sps is in the dictionary (defined in init()) it returns the value of the constant
+    // othewise it returns the value for 250sps. This saves a lot of if/elif/else code!
+    if (this.ic == IC_ADS1015)
+    {
+      config |= spsADS1015[sps];
+    }
+      else
+      {
+      if (!(spsADS1115[sps]))
+      {
+        self.busy = false;
+        callback("ADS1x15: Invalid pga specified");
+      }
+      else
+      {
+        config |= spsADS1115[sps];
+      }
+    }
+    // Set PGA/voltage range, defaults to +-6.144V
+    if (!(pgaADS1x15[pga]))
+    {
+      self.busy = false;
       callback("ADS1x15: Invalid pga specified");
     }
     else
     {
-      config |= spsADS1115[sps];
+      config |= pgaADS1x15[pga];
+      this.pga = pga;
     }
-  }
-  // Set PGA/voltage range, defaults to +-6.144V
-  if (!(pgaADS1x15[pga]))
-  {
-    callback("ADS1x15: Invalid pga specified");
-  }
-  else
-  {
-    config |= pgaADS1x15[pga];
-    this.pga = pga;
-  }
-  // Set 'start single-conversion' bit
-  config |= ADS1015_REG_CONFIG_OS_SINGLE;
-  // Write config register to the ADC
-  bytes = [(config >> 8) & 0xFF, config & 0xFF];
-  self.wire.writeBytes(ADS1015_REG_POINTER_CONFIG, bytes, function(err) {
-    if(err)
-    {
-      callback("We've got an Error, Lance Constable Carrot!: " + err.toString());
-    }
-  });
-  // Wait for the ADC conversion to complete
-  // The minimum delay depends on the sps: delay >= 1/sps
-  // We add 0.1ms to be sure
-
-  delay = 1.0 / sps+0.0001;
-
-  setTimeout(function() {
-    self.wire.readBytes(ADS1015_REG_POINTER_CONVERT, 2, function(err, res) {
-      if (self.ic == IC_ADS1015)
+    // Set 'start single-conversion' bit
+    config |= ADS1015_REG_CONFIG_OS_SINGLE;
+    // Write config register to the ADC
+    bytes = [(config >> 8) & 0xFF, config & 0xFF];
+    self.wire.writeBytes(ADS1015_REG_POINTER_CONFIG, bytes, function(err) {
+      if(err)
       {
-        // Shift right 4 bits for the 12-bit ADS1015 and convert to mV
-        var data = ( ((res[0] << 8) | (res[1] & 0xFF)) >> 4 ) * pga / 2048.0;
-        callback(null, data);
+        self.busy = false;
+        callback("We've got an Error, Lance Constable Carrot!: " + err.toString());
       }
-      else
-      {
-        // Return a mV value for the ADS1115
-        // (Take signed values into account as well)
-        var data = -1;
-        var val = (res[0] << 8) | (res[1]);
-        if (val > 0x7FFF)
-        {
-          data =  (val - 0xFFFF) * pga / 32768.0;
+    });
+    // Wait for the ADC conversion to complete
+    // The minimum delay depends on the sps: delay >= 1/sps
+    // We add 0.1ms to be sure
+  
+    delay = 1.0 / sps+0.0001;
+
+    setTimeout(function() {
+      self.wire.readBytes(ADS1015_REG_POINTER_CONVERT, 2, function(err, res) {
+        if (self.ic == IC_ADS1015)
+        {        
+          // Shift right 4 bits for the 12-bit ADS1015 and convert to mV
+          var data = ( ((res[0] << 8) | (res[1] & 0xFF)) >> 4 ) * pga / 2048.0;
+          self.busy = false;
+          callback(null, data);
         }
         else
         {
-          data =  ( (res[0] << 8) | (res[1]) ) * pga / 32768.0;
+          // Return a mV value for the ADS1115
+          // (Take signed values into account as well)
+          var data = -1;
+          var val = (res[0] << 8) | (res[1]);
+          if (val > 0x7FFF)
+          {
+            data =  (val - 0xFFFF) * pga / 32768.0;
+          }
+          else
+          {
+            data =  ( (res[0] << 8) | (res[1]) ) * pga / 32768.0;
+          }
+          self.busy = false;
+          callback(null, data);
         }
-        callback(null, data);
-      }
-    });
-  }, delay);
-
+      });
+   }, delay);
+  }
+  else
+  {
+    callback("ADC is busy...");
+  }
 }
 
 
@@ -462,122 +488,131 @@ ads1x15.prototype.readADCDifferential23 = function(pga, sps, callback) {
 
 ads1x15.prototype.startContinuousConversion = function(channel, pga, sps, callback) {
   var self = this;
-
-  if(!channel)
-    channel = 0;
-  if(!pga)
-    pga = 6144;
-  if(!sps)
-    sps = 250;
-
-  // Default to channel 0 with invalid channel, or return -1?
-  if (channel > 3)
+  if(!self.busy)
   {
-    callback( "ADS1x15: Invalid channel specified, Lance Corporal Carrot!");
-  }
+    self.busy = true;
+    if(!channel)
+      channel = 0;
+    if(!pga)
+      pga = 6144;
+    if(!sps)
+      sps = 250;
 
-  // Disable comparator, Non-latching, Alert/Rdy active low
-  // traditional comparator, continuous mode
-  // The last flag is the only change we need, page 11 datasheet
-
-  config = ADS1015_REG_CONFIG_CQUE_NONE | ADS1015_REG_CONFIG_CLAT_NONLAT | 
-  ADS1015_REG_CONFIG_CPOL_ACTVLOW | ADS1015_REG_CONFIG_CMODE_TRAD | 
-  ADS1015_REG_CONFIG_MODE_CONTIN;
-
-  // Set sample per seconds, defaults to 250sps
-  // If sps is in the dictionary (defined in init()) it returns the value of the constant
-  // othewise it returns the value for 250sps. This saves a lot of if/elif/else code!
-  if (this.ic == IC_ADS1015)
-  {
-    config |= spsADS1015[sps];
-  }
-  else
-  {
-    if (!(spsADS1115[sps]))
+    // Default to channel 0 with invalid channel, or return -1?
+    if (channel > 3)
     {
-      callback("ADS1x15: Invalid sps specified");
+      self.busy = false;
+      callback( "ADS1x15: Invalid channel specified, Lance Corporal Carrot!");
+    }
+
+    // Disable comparator, Non-latching, Alert/Rdy active low
+    // traditional comparator, continuous mode
+    // The last flag is the only change we need, page 11 datasheet
+
+    config = ADS1015_REG_CONFIG_CQUE_NONE | ADS1015_REG_CONFIG_CLAT_NONLAT | 
+      ADS1015_REG_CONFIG_CPOL_ACTVLOW | ADS1015_REG_CONFIG_CMODE_TRAD | 
+      ADS1015_REG_CONFIG_MODE_CONTIN;
+
+    // Set sample per seconds, defaults to 250sps
+    // If sps is in the dictionary (defined in init()) it returns the value of the constant
+    // othewise it returns the value for 250sps. This saves a lot of if/elif/else code!
+    if (this.ic == IC_ADS1015)
+    {
+      config |= spsADS1015[sps];
     }
     else
     {
-      config |= spsADS1115[sps];
-    }
-  }
-  // Set PGA/voltage range, defaults to +-6.144V
-  if (!(pgaADS1x15[pga]))
-  {
-    callback("ADS1x15: Invalid pga specified");
-  }
-  else
-  {
-    config |= pgaADS1x15[pga];
-  }
-  this.pga = pga;
-
-  // Set the channel to be converted
-  if (channel == 3)
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_3;
-  }
-  else if(channel == 2)
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_2;
-  }
-  else if(channel == 1)
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_1;
-  }
-  else
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_0;
-  }
-  // Set 'start single-conversion' bit to begin conversions
-  // No need to change this for continuous mode!
-  config |= ADS1015_REG_CONFIG_OS_SINGLE;
-
-  // Write config register to the ADC
-  // Once we write the ADC will convert continously
-  // we can read the next values using getLastConversionResult
-
-  bytes = [(config >> 8) & 0xFF, config & 0xFF];
-  self.wire.writeBytes(ADS1015_REG_POINTER_CONFIG, bytes, function(err) {
-    if(err)
-    {
-      callback("We've got an Error, Lance Constable Carrot!: " + err.toString());
-    }
-  });
-  // Wait for the ADC conversion to complete
-  // The minimum delay depends on the sps: delay >= 1/sps
-  // We add 0.1ms to be sure
-
-  delay = 1.0 / sps+0.0001;
-  setTimeout(function() {
-    self.wire.readBytes(ADS1015_REG_POINTER_CONVERT, 2, function(err, res) {
-      if (this.ic == IC_ADS1015)
+      if (!(spsADS1115[sps]))
       {
-        // Shift right 4 bits for the 12-bit ADS1015 and convert to mV
-        var data =  ( ((res[0] << 8) | (res[1] & 0xFF)) >> 4 ) * pga / 2048.0;
-        callback(null, data);
+        self.busy = false;
+        callback("ADS1x15: Invalid sps specified");
       }
       else
       {
-        // Return a mV value for the ADS1115
-        // (Take signed values into account as well)
-        var data = -1;
-        var val = (res[0] << 8) | (res[1]);
-        if (val > 0x7FFF)
+        config |= spsADS1115[sps];
+      }
+    }
+    // Set PGA/voltage range, defaults to +-6.144V
+    if (!(pgaADS1x15[pga]))
+    {
+      self.busy = false;
+      callback("ADS1x15: Invalid pga specified");
+    }
+    else
+    {
+      config |= pgaADS1x15[pga];
+    }
+    this.pga = pga;
+
+    // Set the channel to be converted
+    if (channel == 3)
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_3;
+    }
+    else if(channel == 2)
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_2;
+    }
+    else if(channel == 1)
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_1;
+    }
+    else
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_0;
+    }
+    // Set 'start single-conversion' bit to begin conversions
+    // No need to change this for continuous mode!
+    config |= ADS1015_REG_CONFIG_OS_SINGLE;
+
+    // Write config register to the ADC
+    // Once we write the ADC will convert continously
+    // we can read the next values using getLastConversionResult
+
+    bytes = [(config >> 8) & 0xFF, config & 0xFF];
+    self.wire.writeBytes(ADS1015_REG_POINTER_CONFIG, bytes, function(err) {
+      if(err)
+      {
+        self.busy = false;
+        callback("We've got an Error, Lance Constable Carrot!: " + err.toString());
+      }
+    });
+    // Wait for the ADC conversion to complete
+    // The minimum delay depends on the sps: delay >= 1/sps
+    // We add 0.1ms to be sure
+
+    delay = 1.0 / sps+0.0001;
+    setTimeout(function() {
+      self.wire.readBytes(ADS1015_REG_POINTER_CONVERT, 2, function(err, res) {
+        if (this.ic == IC_ADS1015)
         {
-          data =  (val - 0xFFFF) * pga / 32768.0;
+          // Shift right 4 bits for the 12-bit ADS1015 and convert to mV
+          var data =  ( ((res[0] << 8) | (res[1] & 0xFF)) >> 4 ) * pga / 2048.0;
+          callback(null, data);
         }
         else
         {
-          data = ( (res[0] << 8) | (res[1]) ) * pga / 32768.0;
+          // Return a mV value for the ADS1115
+          // (Take signed values into account as well)
+          var data = -1;
+          var val = (res[0] << 8) | (res[1]);
+          if (val > 0x7FFF)
+          {
+            data =  (val - 0xFFFF) * pga / 32768.0;
+          }
+          else
+          {
+            data = ( (res[0] << 8) | (res[1]) ) * pga / 32768.0;
+          }
+          callback(null, data);
         }
-        callback(null, data);
-      }
-    });
-  }, delay);
-
-  
+      });
+    }, delay);
+  }
+  else
+  {
+    callback("ADC is busy...");
+  }
 }
 
 
@@ -589,10 +624,11 @@ ads1x15.prototype.stopContinuousConversion = function(callback) {
   // Write the default config register to the ADC
   // Once we write, the ADC will do a single conversion and
   //  enter power-off mode.
-
+  self = this;
   config = 0x8583; // Page 18 datasheet.
   bytes = [(config >> 8) & 0xFF, config & 0xFF];
   this.wire.writeBytes(ADS1015_REG_POINTER_CONFIG, bytes, function(err) {
+    self.busy = false;
     if(err)
     {
       console.log("Error: " + err);
@@ -646,161 +682,177 @@ ads1x15.prototype.getLastConversionResults = function(callback) {
 // the sample rate and the pga the gain, see datasheet page 13. 
 
 ads1x15.prototype.startSingleEndedComparator = function(channel, thresholdHigh, thresholdLow, pga, sps, activeLow, traditionalMode, latching, numReadings, callback) {
-  if(!(pga))
-    pga = 6144;
-  if(!(sps))
-    sps = 250;
-  if(!(activeLow))
-    activeLow = true;
-  if(!(traditionalMode))
-    traditionalMode = true;
-  if(!(latching))
-    latching = false;
-  if(!(numReadings))
-    numReadings = 1;
+  self = this;
+  if(!self.busy)
+  {
+    self.busy = true;
+    if(!(pga))
+      pga = 6144;
+    if(!(sps))
+      sps = 250;
+    if(!(activeLow))
+      activeLow = true;
+    if(!(traditionalMode))
+      traditionalMode = true;
+    if(!(latching))
+      latching = false;
+    if(!(numReadings))
+      numReadings = 1;
 
-  // With invalid channel return -1
-  if (channel > 3)
-  {
-     console.log("ADS1x15: Invalid channel specified");
-     callback("ADS1x15: Invalid channel specified");
-  }
-
-  // Continuous mode
-  config = ADS1015_REG_CONFIG_MODE_CONTIN;
-  if (activeLow == false)
-  {
-    config |= ADS1015_REG_CONFIG_CPOL_ACTVHI;
-  }
-  else
-  {
-    config |= ADS1015_REG_CONFIG_CPOL_ACTVLOW;
-  }
-  if (traditionalMode == false)
-  {
-    config |= ADS1015_REG_CONFIG_CMODE_WINDOW;
-  }
-  else
-  {
-    config |= ADS1015_REG_CONFIG_CMODE_TRAD;
-  }
-  if (latching == true)
-  {
-    config |= ADS1015_REG_CONFIG_CLAT_LATCH;
-  }
-  else
-  {
-    config |= ADS1015_REG_CONFIG_CLAT_NONLAT;
-  }
-  if (numReadings == 4)
-  {
-    config |= ADS1015_REG_CONFIG_CQUE_4CONV;
-  }
-  else if(numReadings == 2)
-  {
-    config |= ADS1015_REG_CONFIG_CQUE_2CONV;
-  }
-  else
-  {
-    config |= ADS1015_REG_CONFIG_CQUE_1CONV;
-  }
-  // Set sample per seconds, defaults to 250sps
-  // If sps is in the dictionary (defined in init()) it returns the value of the constant
-  // othewise it returns the value for 250sps. This saves a lot of if/elif/else code!
-  if (this.ic == IC_ADS1015)
-  {
-    if (!(spsADS1015[sps]))
+    // With invalid channel return -1
+    if (channel > 3)
     {
-      callback("ADS1x15: Invalid sps specified");
+       self.busy = false;
+       console.log("ADS1x15: Invalid channel specified");
+       callback("ADS1x15: Invalid channel specified");
     }
-    config |= spsADS1015[sps];
-  }
-  else
-  {
-    if (!(spsADS1115[sps]))
+
+    // Continuous mode
+    config = ADS1015_REG_CONFIG_MODE_CONTIN;
+    if (activeLow == false)
     {
-      callback("ADS1x15: Invalid sps specified");
+      config |= ADS1015_REG_CONFIG_CPOL_ACTVHI;
     }
-    config |= spsADS1115[sps];
-  }
-  // Set PGA/voltage range, defaults to +-6.144V
-  if (!(pgaADS1x15[pga]))
-  {
-    callback("ADS1x15: Invalid pga specified");
-  }
-  config |= pgaADS1x15[pga];
-  this.pga = pga
-
-  // Set the channel to be converted
-  if (channel == 3)
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_3;
-  }
-  else if( channel == 2)
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_2;
-  }
-  else if(channel == 1)
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_1;
-  }
-  else
-  {
-    config |= ADS1015_REG_CONFIG_MUX_SINGLE_0;
-  }
-
-  // Set 'start single-conversion' bit to begin conversions
-  config |= DS1015_REG_CONFIG_OS_SINGLE;
-
-  // Write threshold high and low registers to the ADC
-  // V_digital = (2^(n-1)-1)/pga*V_analog
-  var thresholdHighWord = 0;
-
-  if (this.ic == IC_ADS1015)
-  {
-    thresholdHighWORD = int(thresholdHigh*(2048.0/pga));
-  }
-  else
-  {
-    thresholdHighWORD = int(thresholdHigh*(32767.0/pga));
-  }
-
-  var bytes = [(thresholdHighWORD >> 8) & 0xFF, thresholdHighWORD & 0xFF];
-
-  this.wire.writeBytes(ADS1015_REG_POINTER_HITHRESH, bytes, function(err){
-    if(err)
+    else
     {
-      callback(err);
+      config |= ADS1015_REG_CONFIG_CPOL_ACTVLOW;
     }
-  });
-  var thresholdLowWORD = 0;
+    if (traditionalMode == false)
+    {
+      config |= ADS1015_REG_CONFIG_CMODE_WINDOW;
+    }
+    else
+    {
+      config |= ADS1015_REG_CONFIG_CMODE_TRAD;
+    }
+    if (latching == true)
+    {
+      config |= ADS1015_REG_CONFIG_CLAT_LATCH;
+    }
+    else
+    {
+      config |= ADS1015_REG_CONFIG_CLAT_NONLAT;
+    }
+    if (numReadings == 4)
+    {
+      config |= ADS1015_REG_CONFIG_CQUE_4CONV;
+    }
+    else if(numReadings == 2)
+    {
+      config |= ADS1015_REG_CONFIG_CQUE_2CONV;
+    }
+    else
+    {
+      config |= ADS1015_REG_CONFIG_CQUE_1CONV;
+    }
+    // Set sample per seconds, defaults to 250sps
+    // If sps is in the dictionary (defined in init()) it returns the value of the constant
+    // othewise it returns the value for 250sps. This saves a lot of if/elif/else code!
+    if (this.ic == IC_ADS1015)
+    {
+      if (!(spsADS1015[sps]))
+      {
+        self.busy = false;
+        callback("ADS1x15: Invalid sps specified");
+      }
+      config |= spsADS1015[sps];
+    }
+    else
+    {
+      if (!(spsADS1115[sps]))
+      {
+        self.busy = false;
+        callback("ADS1x15: Invalid sps specified");
+      }
+      config |= spsADS1115[sps];
+    }
+    // Set PGA/voltage range, defaults to +-6.144V
+    if (!(pgaADS1x15[pga]))
+    {
+      self.busy = false;
+      callback("ADS1x15: Invalid pga specified");
+    }
+    config |= pgaADS1x15[pga];
+    this.pga = pga
 
-  if (this.ic == IC_ADS1015)
-  {
-    thresholdLowWORD = int(thresholdLow*(2048.0/pga));
+    // Set the channel to be converted
+    if (channel == 3)
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_3;
+    }
+    else if( channel == 2)
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_2;
+    }
+    else if(channel == 1)
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_1;
+    }
+    else
+    {
+      config |= ADS1015_REG_CONFIG_MUX_SINGLE_0;
+    }
+
+    // Set 'start single-conversion' bit to begin conversions
+    config |= DS1015_REG_CONFIG_OS_SINGLE;
+
+    // Write threshold high and low registers to the ADC
+    // V_digital = (2^(n-1)-1)/pga*V_analog
+    var thresholdHighWord = 0;
+
+    if (this.ic == IC_ADS1015)
+    {
+      thresholdHighWORD = int(thresholdHigh*(2048.0/pga));
+    }
+    else
+    {
+      thresholdHighWORD = int(thresholdHigh*(32767.0/pga));
+    }
+
+    var bytes = [(thresholdHighWORD >> 8) & 0xFF, thresholdHighWORD & 0xFF];
+
+    this.wire.writeBytes(ADS1015_REG_POINTER_HITHRESH, bytes, function(err){
+      if(err)
+      {
+        self.busy = false;
+        callback(err);
+      }
+    });
+    var thresholdLowWORD = 0;
+
+    if (this.ic == IC_ADS1015)
+    {
+      thresholdLowWORD = int(thresholdLow*(2048.0/pga));
+    }
+    else
+    {
+      thresholdLowWORD = int(thresholdLow*(32767.0/pga));
+    }
+    var bytes = [(thresholdLowWORD >> 8) & 0xFF, thresholdLowWORD & 0xFF];
+
+    this.wire.writeBytes(ADS1015_REG_POINTER_LOWTHRESH, bytes, function(err) { 
+      if(err){
+        self.busy = false;
+        callback(err);
+        }
+    });
+
+    // Write config register to the ADC
+    // Once we write the ADC will convert continously and alert when things happen,
+    // we can read the converted values using getLastConversionResult
+    bytes = [(config >> 8) & 0xFF, config & 0xFF];
+
+    this.wire.writeBytes(ADS1015_REG_POINTER_CONFIG, bytes, function(err) { 
+      if(err){
+        self.busy = false;
+        callback(err);
+      }
+    });
   }
   else
   {
-    thresholdLowWORD = int(thresholdLow*(32767.0/pga));
+    callback("ADC is busy...");
   }
-  var bytes = [(thresholdLowWORD >> 8) & 0xFF, thresholdLowWORD & 0xFF];
-
-  this.wire.writeBytes(ADS1015_REG_POINTER_LOWTHRESH, bytes, function(err) { 
-    if(err){
-      callback(err);
-    }
-  });
-
-  // Write config register to the ADC
-  // Once we write the ADC will convert continously and alert when things happen,
-  // we can read the converted values using getLastConversionResult
-  bytes = [(config >> 8) & 0xFF, config & 0xFF];
-
-  this.wire.writeBytes(ADS1015_REG_POINTER_CONFIG, bytes, function(err) { 
-    if(err){
-      callback(err);
-    }
-  });
 }
 
 // Starts the comparator mode on the specified channel, see datasheet pg. 15. \
@@ -816,154 +868,173 @@ ads1x15.prototype.startSingleEndedComparator = function(channel, thresholdHigh, 
 // the sample rate and the pga the gain, see datasheet page 13. "
 
 ads1x15.prototype.startDifferentialComparator = function(chP, chN, thresholdHigh, thresholdLow, pga, sps, activeLow, traditionalMode, latching, numReadings, callback) {
- if(!(pga))
-    pga = 6144;
-  if(!(sps))
-    sps = 250;
-  if(!(activeLow))
-    activeLow = true;
-  if(!(traditionalMode))
-    traditionalMode = true;
-  if(!(latching))
+  self = this;
+  if(!self.busy)
+  {
+    self.busy = true;
+    if(!(pga))
+      pga = 6144;
+    if(!(sps))
+      sps = 250;
+    if(!(activeLow))
+      activeLow = true;
+    if(!(traditionalMode))
+      traditionalMode = true;
+    if(!(latching))
     latching = false;
-  if(!(numReadings))
-    numReadings = 1;
+    if(!(numReadings))
+      numReadings = 1;
 
-  // Continuous mode
-  config = ADS1015_REG_CONFIG_MODE_CONTIN;
-  if (activeLow==False)
-  {
-    config |= ADS1015_REG_CONFIG_CPOL_ACTVHI;
-  }
-  else
-  {
-    config |= ADS1015_REG_CONFIG_CPOL_ACTVLOW;
-  }
-  if (!traditionalMode)
-  {
-    config |= ADS1015_REG_CONFIG_CMODE_WINDOW;
-  }
-  else
-  {
-    config |= ADS1015_REG_CONFIG_CMODE_TRAD;
-  }
-  if (latching)
-  {
-    config |= ADS1015_REG_CONFIG_CLAT_LATCH;
-  }
-  else
-  {
-    config |= ADS1015_REG_CONFIG_CLAT_NONLAT;
-  }
-  if (numReadings==4) 
-  {
-    config |= ADS1015_REG_CONFIG_CQUE_4CONV;
-  }
-  else if(numReadings==2)
-  {
-    config |= ADS1015_REG_CONFIG_CQUE_2CONV;
-  }
-  else
-  {
-    config |= ADS1015_REG_CONFIG_CQUE_1CONV;
-  }
-
-  // Set sample per seconds, defaults to 250sps
-  // If sps is in the dictionary (defined in init()) it returns the value of the constant
-  // othewise it returns the value for 250sps. This saves a lot of if/elif/else code!
-  if (this.ic == IC_ADS1015)
-  {
-    if (!(spsADS1015[sps]))
+    // Continuous mode
+    config = ADS1015_REG_CONFIG_MODE_CONTIN;
+    if (activeLow==False)
     {
-      callback("ADS1x15: Invalid sps specified");
+      config |= ADS1015_REG_CONFIG_CPOL_ACTVHI;
     }
-    config |= spsADS1015[sps];
-  }
-  else
-  {
-    if (!(spsADS1115[sps]))
+    else
     {
-      callback("ADS1x15: Invalid sps specified");
+      config |= ADS1015_REG_CONFIG_CPOL_ACTVLOW;
     }
-    config |= spsADS1115[sps];
-  }
+    if (!traditionalMode)
+    {
+      config |= ADS1015_REG_CONFIG_CMODE_WINDOW;
+    }
+    else
+    {
+      config |= ADS1015_REG_CONFIG_CMODE_TRAD;
+    }
+    if (latching)
+    {
+      config |= ADS1015_REG_CONFIG_CLAT_LATCH;
+    }
+    else
+    {
+      config |= ADS1015_REG_CONFIG_CLAT_NONLAT;
+    }
+    if (numReadings==4) 
+    {
+      config |= ADS1015_REG_CONFIG_CQUE_4CONV;
+    }
+    else if(numReadings==2)
+    {
+      config |= ADS1015_REG_CONFIG_CQUE_2CONV;
+    }
+    else
+    {
+      config |= ADS1015_REG_CONFIG_CQUE_1CONV;
+    }
 
-  // Set PGA/voltage range, defaults to +-6.144V
-  if (!(pgaADS1x15[pga]))
-  {
-     callback("ADS1x15: Invalid pga specified");
-  }
-  config |= pgaADS1x15[pga];
-  this.pga = pga;
+    // Set sample per seconds, defaults to 250sps
+    // If sps is in the dictionary (defined in init()) it returns the value of the constant
+    // othewise it returns the value for 250sps. This saves a lot of if/elif/else code!
+    if (this.ic == IC_ADS1015)
+    {
+      if (!(spsADS1015[sps]))
+      {
+        self.busy = false;
+        callback("ADS1x15: Invalid sps specified");
+      }
+      config |= spsADS1015[sps];
+    }
+    else
+    {
+      if (!(spsADS1115[sps]))
+      {
+        self.busy = false;
+        callback("ADS1x15: Invalid sps specified");
+      }
+      config |= spsADS1115[sps];
+    }
 
-  // Set channels
-  if ( (chP == 0) & (chN == 1) )
-  {
-    config |= ADS1015_REG_CONFIG_MUX_DIFF_0_1;
-  }
-  else if ( (chP == 0) & (chN == 3) )
-  {
-    config |= ADS1015_REG_CONFIG_MUX_DIFF_0_3;
-  }
-  else if ( (chP == 2) & (chN == 3) )
-  {
-    config |= ADS1015_REG_CONFIG_MUX_DIFF_2_3;
-  }
-  else if ( (chP == 1) & (chN == 3) )
-  {
-    config |= ADS1015_REG_CONFIG_MUX_DIFF_1_3;
-  }
-  else
-  {
-    callback("ADS1x15: Invalid channels specified");
-  }
-  // Set 'start single-conversion' bit to begin conversions
-  config |= ADS1015_REG_CONFIG_OS_SINGLE;
+    // Set PGA/voltage range, defaults to +-6.144V
+    if (!(pgaADS1x15[pga]))
+    {
+      self.busy = false;
+       callback("ADS1x15: Invalid pga specified");
+    }
+    config |= pgaADS1x15[pga];
+    this.pga = pga;
 
-  // Write threshold high and low registers to the ADC
-  // V_digital = (2^(n-1)-1)/pga*V_analog;
+    // Set channels
+    if ( (chP == 0) & (chN == 1) )
+    {
+      config |= ADS1015_REG_CONFIG_MUX_DIFF_0_1;
+    }
+    else if ( (chP == 0) & (chN == 3) )
+    {
+      config |= ADS1015_REG_CONFIG_MUX_DIFF_0_3;
+    }
+    else if ( (chP == 2) & (chN == 3) )
+    {
+      config |= ADS1015_REG_CONFIG_MUX_DIFF_2_3;
+    }
+    else if ( (chP == 1) & (chN == 3) )
+    {
+      config |= ADS1015_REG_CONFIG_MUX_DIFF_1_3;
+    }
+    else
+    {
+      self.busy = false;
+      callback("ADS1x15: Invalid channels specified");
+    }
+    // Set 'start single-conversion' bit to begin conversions
+    config |= ADS1015_REG_CONFIG_OS_SINGLE;
 
-  var thresholdHighWORD = 0;
-  if (this.ic == IC_ADS1015)
-  {
-    thresholdHighWORD = int(thresholdHigh*(2048.0/pga));
-  } 
-  else
-  {
-    thresholdHighWORD = int(thresholdHigh*(32767.0/pga));
-  }
-  var bytes = [(thresholdHighWORD >> 8) & 0xFF, thresholdHighWORD & 0xFF];
+    // Write threshold high and low registers to the ADC
+    // V_digital = (2^(n-1)-1)/pga*V_analog;
 
-  this.wire.writeBytes(ADS1015_REG_POINTER_HITHRESH, bytes, function(err) { 
-    callback(err);
-  });
+    var thresholdHighWORD = 0;
+    if (this.ic == IC_ADS1015)
+    {
+      thresholdHighWORD = int(thresholdHigh*(2048.0/pga));
+    } 
+    else
+    {
+      thresholdHighWORD = int(thresholdHigh*(32767.0/pga));
+    }
+    var bytes = [(thresholdHighWORD >> 8) & 0xFF, thresholdHighWORD & 0xFF];
 
-  var thresholdLowWORD = 0;
-  if (this.ic == IC_ADS1015)
-  {
-    thresholdLowWORD = int(thresholdLow*(2048.0/pga));
-  }
-  else
-  {
-    thresholdLowWORD = int(thresholdLow*(32767.0/pga));
-  }
-  bytes = [(thresholdLowWORD >> 8) & 0xFF, thresholdLowWORD & 0xFF];
-
-  this.wire.writeBytes(ADS1015_REG_POINTER_LOWTHRESH, bytes, function(err) { 
-    if(err)
+    this.wire.writeBytes(ADS1015_REG_POINTER_HITHRESH, bytes, function(err) { 
       callback(err);
-  });
+    });
 
-  // Write config register to the ADC
-  // Once we write the ADC will convert continously and alert when things happen,
-  // we can read the converted values using getLastConversionResult
+    var thresholdLowWORD = 0;
+    if (this.ic == IC_ADS1015)
+    {
+      thresholdLowWORD = int(thresholdLow*(2048.0/pga));
+    }
+    else
+    {
+      thresholdLowWORD = int(thresholdLow*(32767.0/pga));
+    }
+    bytes = [(thresholdLowWORD >> 8) & 0xFF, thresholdLowWORD & 0xFF];
 
-  bytes = [(config >> 8) & 0xFF, config & 0xFF];
+    this.wire.writeBytes(ADS1015_REG_POINTER_LOWTHRESH, bytes, function(err) { 
+      if(err)
+      {
+        self.busy = false;
+        callback(err);
+      }
+    });
 
-  this.wire.writeBytes(ADS1015_REG_POINTER_CONFIG, bytes, function(err) {
-    if(err)
-      callback(err);
-  });
+    // Write config register to the ADC
+    // Once we write the ADC will convert continously and alert when things happen,
+    // we can read the converted values using getLastConversionResult
+
+    bytes = [(config >> 8) & 0xFF, config & 0xFF];
+
+    this.wire.writeBytes(ADS1015_REG_POINTER_CONFIG, bytes, function(err) {
+      if(err)
+      {
+        self.busy = false;
+        callback(err);
+      }
+    });
+  }
+  else
+  {
+    callback("ADC is busy...");
+  }
 }
 
 module.exports = ads1x15;

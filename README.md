@@ -18,20 +18,23 @@ A library providing access to ADS1015 and ADS1115 I2C analog to digital converte
 
   //somewhere to store our reading 
   var reading  = 0;
-  adc.readADCSingleEnded(channel, samplesPerSecond, progGainAmp, function(err, data) { 
-    if(err)
-    {
-      //logging / troubleshooting code goes here...
-      throw err;
-    }
-    // if you made it here, then the data object contains your reading!
-    reading = data;
-    // any other data processing code goes here...
-  );
+  if(!adc.busy)
+  {
+    adc.readADCSingleEnded(channel, samplesPerSecond, progGainAmp, function(err, data) { 
+      if(err)
+      {
+        //logging / troubleshooting code goes here...
+        throw err;
+      }
+      // if you made it here, then the data object contains your reading!
+      reading = data;
+      // any other data processing code goes here...
+    );
+  }
   
 ## Tests
 
-  none
+  none (yet)
 
 ## Contributing
 
@@ -40,3 +43,4 @@ A library providing access to ADS1015 and ADS1115 I2C analog to digital converte
 ## Release History
 
 * 1.0.0 Initial release
+  1.0.1 added adc.busy flag to prevent user from grabbing a reading from a previous request
