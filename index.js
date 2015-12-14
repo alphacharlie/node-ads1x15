@@ -229,9 +229,9 @@ ads1x15.prototype.readADCSingleEnded = function(channel, pga, sps, callback) {
       }
 
       // Wait for the ADC conversion to complete
-      // The minimum delay depends on the sps: delay >= 1/sps
-      // We add 0.1ms to be sure
-      var delay = 1.0 /sps +0.0002;
+      // The minimum delay depends on the sps: delay >= 1s/sps
+      // We add 1ms to be sure
+      var delay = 1000 /sps + 1 ;
       setTimeout(function() {
        // Read the conversion results
         self.wire.readBytes(ADS1015_REG_POINTER_CONVERT, 2, function(err, res) {
@@ -375,10 +375,10 @@ ads1x15.prototype.readADCDifferential = function(chP, chN, pga, sps, callback) {
       }
     });
     // Wait for the ADC conversion to complete
-    // The minimum delay depends on the sps: delay >= 1/sps
-    // We add 0.1ms to be sure
-  
-    delay = 1.0 / sps+0.0001;
+    // The minimum delay depends on the sps: delay >= 1s/sps
+    // We add 1ms to be sure
+
+    delay = 1000 / sps + 1;
 
     setTimeout(function() {
       self.wire.readBytes(ADS1015_REG_POINTER_CONVERT, 2, function(err, res) {
@@ -578,10 +578,10 @@ ads1x15.prototype.startContinuousConversion = function(channel, pga, sps, callba
       }
     });
     // Wait for the ADC conversion to complete
-    // The minimum delay depends on the sps: delay >= 1/sps
-    // We add 0.1ms to be sure
+    // The minimum delay depends on the sps: delay >= 1s/sps
+    // We add 1ms to be sure
 
-    delay = 1.0 / sps+0.0001;
+    delay = 1000 / sps + 1;
     setTimeout(function() {
       self.wire.readBytes(ADS1015_REG_POINTER_CONVERT, 2, function(err, res) {
         if (this.ic == IC_ADS1015)
