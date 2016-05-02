@@ -20,7 +20,7 @@ A library providing access to ADS1015 and ADS1115 I2C analog to digital converte
   var reading  = 0;  
   if(!adc.busy)  
   {  
-    adc.readADCSingleEnded(channel, samplesPerSecond, progGainAmp, function(err, data) {   
+    adc.readADCSingleEnded(channel, progGainAmp, samplesPerSecond, function(err, data) {   
       if(err)  
       {  
         //logging / troubleshooting code goes here...  
