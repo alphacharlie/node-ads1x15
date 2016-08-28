@@ -107,7 +107,7 @@ var pgaADS1x15 = {
 
 // set up I2C for ADS1015/ADS1115
 
-function ads1x15(ic, address) {
+function ads1x15(ic, address, i2c_dev) {
   if(!(ic))
   {
     ic = IC_ADS1015;       // default to ads1015...
@@ -116,7 +116,10 @@ function ads1x15(ic, address) {
   {
     address = 0x48;       // Address pin tied to ground gives us 1001000 (or 0x48)
   }
-
+  if(!(i2c_dev))
+  {
+    i2c_dev = '/dev/i2c-1'; // default to pi 2b/3...
+  }
   if(!(ic == IC_ADS1015 | ic == IC_ADS1115))
   {
     throw "Error: not a supported device";
@@ -124,7 +127,7 @@ function ads1x15(ic, address) {
   this.ic = ic; // 0 for ads1015, 1 for ads1115;
   this.address = address; //defaults to 0x48 for addr pin tied to ground
   this.pga = 6144; //set this to a sane default...
-  this.wire = new i2c(address, { device : '/dev/i2c-1' } );   // Raspberry Pi2 uses I2c address 1... (change to '/dev/i2c-1' for old Pi 1)
+  this.wire = new i2c(address, { device : i2c_dev } );   
   this.busy = false;
 
 }
