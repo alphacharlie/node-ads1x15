@@ -52,5 +52,5 @@ A library providing access to ADS1015 and ADS1115 I2C analog to digital converte
 ## Release History
 
 * 1.0.0 Initial release
-  1.0.1 added adc.busy flag to prevent user from grabbing a reading from a previous request
-  1.0.3 added i2c_dev parameter for devices that do not use /dev/i2c-1
+* 1.0.1 added adc.busy flag to prevent user from grabbing a reading from a previous request
+* 1.0.3 added i2c_dev parameter for devices that do not use /dev/i2c-1
