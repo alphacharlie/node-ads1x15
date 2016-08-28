@@ -1,6 +1,6 @@
 {
   "name": "node-ads1x15",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "Node module for the I2C ADS1x15 anaolg to digital converters to run on Raspberry Pi",
   "main": "index.js",
   "scripts": {
